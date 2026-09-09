@@ -6,7 +6,7 @@ Base URL:
 http://localhost:5000/api/v1
 ```
 
-All successful responses use this envelope:
+GET responses use this envelope:
 
 ```json
 {
@@ -87,21 +87,14 @@ Status: `201 Created`
 {
   "success": true,
   "message": "Registration successful",
-  "data": {
-    "user": {
-      "id": "2c8c0c6e-7e32-4a24-9e14-5a4f5b1c7a11",
-      "email": "user@example.com",
-      "name": "John Doe",
-      "imageUrl": "https://your-project.supabase.co/storage/v1/object/public/avatars/users/...",
-      "role": "USER",
-      "createdAt": "2026-09-09T13:00:00.000Z",
-      "updatedAt": "2026-09-09T13:00:00.000Z"
-    },
-    "sessionToken": "opaque-session-token",
-    "expiresAt": "2026-10-09T13:00:00.000Z"
-  },
   "meta": null
 }
+```
+
+The session token is returned in the `Authorization` response header:
+
+```http
+Authorization: Bearer <session-token>
 ```
 
 ## Login
@@ -126,21 +119,14 @@ Status: `200 OK`
 {
   "success": true,
   "message": "Login successful",
-  "data": {
-    "user": {
-      "id": "2c8c0c6e-7e32-4a24-9e14-5a4f5b1c7a11",
-      "email": "user@example.com",
-      "name": "John Doe",
-      "imageUrl": null,
-      "role": "USER",
-      "createdAt": "2026-09-09T13:00:00.000Z",
-      "updatedAt": "2026-09-09T13:00:00.000Z"
-    },
-    "sessionToken": "opaque-session-token",
-    "expiresAt": "2026-10-09T13:00:00.000Z"
-  },
   "meta": null
 }
+```
+
+The session token is returned in the `Authorization` response header:
+
+```http
+Authorization: Bearer <session-token>
 ```
 
 ## Google Login
@@ -168,21 +154,14 @@ The response has the same shape as the login response:
 {
   "success": true,
   "message": "Google login successful",
-  "data": {
-    "user": {
-      "id": "2c8c0c6e-7e32-4a24-9e14-5a4f5b1c7a11",
-      "email": "user@example.com",
-      "name": "John Doe",
-      "imageUrl": "https://lh3.googleusercontent.com/...",
-      "role": "USER",
-      "createdAt": "2026-09-09T13:00:00.000Z",
-      "updatedAt": "2026-09-09T13:00:00.000Z"
-    },
-    "sessionToken": "opaque-session-token",
-    "expiresAt": "2026-10-09T13:00:00.000Z"
-  },
   "meta": null
 }
+```
+
+The session token is returned in the `Authorization` response header:
+
+```http
+Authorization: Bearer <session-token>
 ```
 
 Google users are matched by their verified email address and linked through `AuthAccount`.
@@ -262,7 +241,7 @@ Status: `400 Bad Request`
 
 ## Frontend integration notes
 
-1. Store `data.sessionToken` securely; do not store passwords.
+1. Store the `Authorization` response header securely; do not store passwords.
 2. The current API returns the session token but protected-route middleware is not implemented yet.
 3. For avatar upload, use `FormData` and do not manually set the `Content-Type` header; the browser adds the multipart boundary.
 4. The Supabase service role key must remain backend-only.
