@@ -15,13 +15,131 @@ enum Role {
   ADMIN
 }
 
+enum AuthProvider {
+  GOOGLE
+}
+
+enum MembershipStatus {
+  ACTIVE
+  BILLING_ISSUE
+  CANCELED
+  EXPIRED
+  PAUSED
+  INCOMPLETE
+}
+
+enum SubscriptionStore {
+  APP_STORE
+  PLAY_STORE
+  STRIPE
+  PROMOTIONAL
+  UNKNOWN
+}
+
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  name      String?
-  role      Role     @default(USER)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                  String                   @id @default(uuid())
+  email               String                   @unique
+  name                String?
+  imageUrl            String?
+  passwordHash        String?
+  emailVerifiedAt     DateTime?
+  role                Role                     @default(USER)
+  revenueCatAppUserId String?                  @unique
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  accounts            AuthAccount[]
+  sessions            Session[]
+  subscriptions       MembershipSubscription[]
+  revenueCatEvents    RevenueCatEvent[]
 
   @@map("users")
+}
+
+model AuthAccount {
+  id                String       @id @default(uuid())
+  userId            String
+  provider          AuthProvider
+  providerAccountId String
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("auth_accounts")
+}
+
+model Session {
+  id               String    @id @default(uuid())
+  userId           String
+  sessionTokenHash String    @unique
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  lastUsedAt       DateTime?
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("sessions")
+}
+
+model MembershipPlan {
+  id                    String                   @id @default(uuid())
+  name                  String
+  productIdentifier     String                   @unique
+  entitlementIdentifier String
+  description           String?
+  active                Boolean                  @default(true)
+  createdAt             DateTime                 @default(now())
+  updatedAt             DateTime                 @updatedAt
+  subscriptions         MembershipSubscription[]
+
+  @@index([entitlementIdentifier])
+  @@map("membership_plans")
+}
+
+model MembershipSubscription {
+  id                    String            @id @default(uuid())
+  userId                String
+  planId                String?
+  revenueCatAppUserId   String
+  productIdentifier     String
+  entitlementIdentifier String?
+  store                 SubscriptionStore @default(UNKNOWN)
+  status                MembershipStatus
+  originalTransactionId String?
+  transactionId         String?
+  purchasedAt           DateTime?
+  startsAt              DateTime?
+  expiresAt             DateTime?
+  canceledAt            DateTime?
+  autoRenewing          Boolean?
+  environment           String?
+  lastEventAt           DateTime
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  user                  User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan                  MembershipPlan?   @relation(fields: [planId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, productIdentifier])
+  @@index([revenueCatAppUserId])
+  @@index([status, expiresAt])
+  @@index([originalTransactionId])
+  @@map("membership_subscriptions")
+}
+
+model RevenueCatEvent {
+  id                  String    @id @default(uuid())
+  eventId             String    @unique
+  userId              String?
+  revenueCatAppUserId String
+  eventType           String
+  eventCreatedAt      DateTime?
+  processedAt         DateTime  @default(now())
+  payload             Json
+  user                User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([revenueCatAppUserId, eventCreatedAt])
+  @@index([eventType, eventCreatedAt])
+  @@map("revenuecat_events")
 }
