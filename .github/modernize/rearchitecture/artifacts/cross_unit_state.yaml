@@ -1,0 +1,7 @@
+flows:
+  - source_loc: src/config/database.ts:8
+    state: global PrismaClient singleton
+    producers: [user-create]
+    consumers: [user-list, user-read, user-delete]
+    pairing: matched
+    must_preserve: true

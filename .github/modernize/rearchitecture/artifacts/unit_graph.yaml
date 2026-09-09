@@ -1,0 +1,45 @@
+units:
+  - name: health-check
+    source_anchors:
+      - src/routes/health.routes.ts:6
+      - src/controllers/health.controller.ts:5
+    exported_signature: "GET /api/v1/health -> standard success response with uptime and timestamp"
+    depends_on: []
+    dynamic_entrypoints: []
+    shared_refs: [response-format]
+  - name: user-list
+    source_anchors:
+      - src/routes/user.routes.ts:6
+      - src/controllers/user.controller.ts:7
+      - src/services/user.service.ts:5
+    exported_signature: "GET /api/v1/users -> users ordered by createdAt descending"
+    depends_on: [user-model]
+    dynamic_entrypoints: []
+    shared_refs: [response-format, prisma-client]
+  - name: user-read
+    source_anchors:
+      - src/routes/user.routes.ts:7
+      - src/controllers/user.controller.ts:20
+      - src/services/user.service.ts:19
+    exported_signature: "GET /api/v1/users/:id -> user or 404"
+    depends_on: [user-model]
+    dynamic_entrypoints: []
+    shared_refs: [response-format, prisma-client, api-errors]
+  - name: user-create
+    source_anchors:
+      - src/routes/user.routes.ts:8
+      - src/controllers/user.controller.ts:33
+      - src/services/user.service.ts:39
+    exported_signature: "POST /api/v1/users -> creates user from email and optional name"
+    depends_on: [user-model]
+    dynamic_entrypoints: []
+    shared_refs: [response-format, prisma-client, api-errors]
+  - name: user-delete
+    source_anchors:
+      - src/routes/user.routes.ts:9
+      - src/controllers/user.controller.ts:52
+      - src/services/user.service.ts:61
+    exported_signature: "DELETE /api/v1/users/:id -> deletes existing user or 404"
+    depends_on: [user-model]
+    dynamic_entrypoints: []
+    shared_refs: [response-format, prisma-client, api-errors]

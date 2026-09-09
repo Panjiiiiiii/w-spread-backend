@@ -1,0 +1,5 @@
+unit: user-create
+bindings:
+  - "POST /api/v1/users is registered by user.routes.ts"
+runtime_config:
+  - "Prisma DATABASE_URL must be available to the generated client"

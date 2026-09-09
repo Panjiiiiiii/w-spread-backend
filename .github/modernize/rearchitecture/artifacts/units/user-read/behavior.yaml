@@ -1,0 +1,13 @@
+unit: user-read
+side_effects:
+  - description: queries one User by UUID
+    must_preserve: true
+branches:
+  - description: missing user produces a not-found ApiError
+    must_preserve: true
+error_paths:
+  - contract: 404 message includes the requested ID
+    must_preserve: true
+concurrency:
+  model: asynchronous database request
+  tx_boundary: none

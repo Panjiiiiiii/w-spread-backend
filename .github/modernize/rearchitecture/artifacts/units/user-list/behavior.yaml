@@ -1,0 +1,11 @@
+unit: user-list
+side_effects:
+  - description: queries User records ordered by createdAt descending
+    must_preserve: true
+branches: []
+error_paths:
+  - contract: unexpected database errors reach centralized errorHandler
+    must_preserve: true
+concurrency:
+  model: asynchronous database request
+  tx_boundary: none

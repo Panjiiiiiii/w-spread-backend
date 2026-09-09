@@ -1,0 +1,9 @@
+unit: health-check
+side_effects:
+  - description: reads process uptime and current timestamp
+    must_preserve: true
+branches: []
+error_paths: []
+concurrency:
+  model: synchronous request handler
+  tx_boundary: none

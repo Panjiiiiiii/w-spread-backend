@@ -96,6 +96,21 @@ npm start
 
 ---
 
+## 🔐 Authentication & Membership Data Contract
+
+The Prisma schema is ready for the API layer to add Google login and RevenueCat membership handling:
+
+- `AuthAccount` stores the Google provider subject (`providerAccountId`) and links it to `User`.
+- `Session` stores only a hash of a server-issued session token, plus expiry and revocation timestamps.
+- `User.revenueCatAppUserId` is the stable RevenueCat `app_user_id`. Use the internal user ID as this value unless the client already has an established RevenueCat ID.
+- `MembershipPlan` maps an internal plan to RevenueCat `productIdentifier` and `entitlementIdentifier`.
+- `MembershipSubscription` stores the latest entitlement/subscription state for a user.
+- `RevenueCatEvent.eventId` is unique so webhook processing can be idempotent; persist the payload before applying subscription changes.
+
+Google OAuth token verification, session issuance, and the RevenueCat webhook route are not implemented by the current Express layer yet. They should resolve users through `AuthAccount` and update membership rows from verified RevenueCat webhook events, never from client-provided entitlement claims.
+
+---
+
 ## 📡 API Endpoints
 
 | Method | Endpoint | Deskripsi |

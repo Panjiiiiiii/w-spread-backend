@@ -1,0 +1,11 @@
+contracts:
+  - source_loc: src/utils/apiResponse.ts:1
+    interface: REST
+    stability: frozen
+    target_contract: "Responses retain success, message, data, meta, and errors envelope semantics."
+    semantic_divergence: []
+  - source_loc: src/routes/index.ts:7
+    interface: REST
+    stability: frozen
+    target_contract: "Existing /api/v1/health and /api/v1/users route prefixes remain available."
+    semantic_divergence: []

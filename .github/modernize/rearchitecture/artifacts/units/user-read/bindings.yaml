@@ -1,0 +1,5 @@
+unit: user-read
+bindings:
+  - "GET /api/v1/users/:id is registered by user.routes.ts"
+runtime_config:
+  - "Prisma DATABASE_URL must be available to the generated client"

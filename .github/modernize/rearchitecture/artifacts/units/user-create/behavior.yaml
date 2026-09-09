@@ -1,0 +1,17 @@
+unit: user-create
+side_effects:
+  - description: rejects duplicate email before creating a User
+    must_preserve: true
+  - description: persists email and optional name
+    must_preserve: true
+branches:
+  - description: email must be present and a string
+    must_preserve: true
+error_paths:
+  - contract: invalid email input returns a bad-request ApiError
+    must_preserve: true
+  - contract: duplicate email returns a bad-request ApiError
+    must_preserve: true
+concurrency:
+  model: asynchronous database request
+  tx_boundary: none

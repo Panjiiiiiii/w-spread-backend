@@ -1,0 +1,13 @@
+unit: user-delete
+side_effects:
+  - description: validates the user exists, then deletes it
+    must_preserve: true
+branches:
+  - description: missing user produces a not-found ApiError before deletion
+    must_preserve: true
+error_paths:
+  - contract: not-found and database errors reach centralized errorHandler
+    must_preserve: true
+concurrency:
+  model: asynchronous database request
+  tx_boundary: validation and deletion are separate operations

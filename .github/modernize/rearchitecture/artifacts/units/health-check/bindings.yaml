@@ -1,0 +1,4 @@
+unit: health-check
+bindings:
+  - "GET /api/v1/health is registered by health.routes.ts"
+runtime_config: []

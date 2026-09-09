@@ -1,0 +1,29 @@
+shared_modules:
+  - name: response-format
+    source_loc: src/utils/apiResponse.ts:1
+    kind: shared-utility
+    used_by_units: [health-check, user-list, user-read, user-create, user-delete]
+    fields: []
+    split_candidate: false
+    migration_strategy: preserve standard success/error envelope.
+  - name: prisma-client
+    source_loc: src/config/database.ts:1
+    kind: shared-infrastructure
+    used_by_units: [user-list, user-read, user-create, user-delete]
+    fields: []
+    split_candidate: false
+    migration_strategy: preserve singleton PrismaClient lifecycle.
+  - name: api-errors
+    source_loc: src/utils/apiError.ts:1
+    kind: shared-utility
+    used_by_units: [user-read, user-create, user-delete]
+    fields: []
+    split_candidate: false
+    migration_strategy: preserve typed HTTP error mapping.
+  - name: user-model
+    source_loc: prisma/schema.prisma:18
+    kind: persistence-model
+    used_by_units: [user-list, user-read, user-create, user-delete]
+    fields: [id, email, name, role, createdAt, updatedAt]
+    split_candidate: false
+    migration_strategy: preserve existing fields and add nullable auth/membership fields.
