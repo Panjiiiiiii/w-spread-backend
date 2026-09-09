@@ -9,6 +9,7 @@ export class UserService {
         id: true,
         email: true,
         name: true,
+        imageUrl: true,
         role: true,
         createdAt: true,
         updatedAt: true,
@@ -23,6 +24,7 @@ export class UserService {
         id: true,
         email: true,
         name: true,
+        imageUrl: true,
         role: true,
         createdAt: true,
         updatedAt: true,
@@ -36,7 +38,7 @@ export class UserService {
     return user;
   }
 
-  static async createUser(data: { email: string; name?: string }) {
+  static async createUser(data: { email: string; name?: string; imageUrl?: string }) {
     const existing = await prisma.user.findUnique({
       where: { email: data.email },
     });
@@ -51,6 +53,7 @@ export class UserService {
         id: true,
         email: true,
         name: true,
+        imageUrl: true,
         role: true,
         createdAt: true,
         updatedAt: true,

@@ -121,8 +121,40 @@ Google OAuth token verification, session issuance, and the RevenueCat webhook ro
 | `GET` | `/api/v1/users/:id` | Mendapatkan user berdasarkan ID |
 | `POST` | `/api/v1/users` | Membuat user baru |
 | `DELETE`| `/api/v1/users/:id` | Menghapus user |
+| `POST` | `/api/v1/auth/register` | Register email/password, optional avatar |
+| `POST` | `/api/v1/auth/login` | Login email/password |
+| `POST` | `/api/v1/auth/google` | Login dengan Google ID token |
 
 ---
+
+### Auth payloads
+
+Register JSON:
+
+```json
+{
+  "email": "user@example.com",
+  "password": "minimum-8-characters",
+  "name": "User Name",
+  "imageUrl": "https://optional-existing-image-url"
+}
+```
+
+For a new image, send `multipart/form-data` with the same `email`, `password`, and `name` fields plus an `image` file (`JPEG`, `PNG`, or `WebP`, maximum 5 MB). The backend uploads it to the configured Supabase Storage bucket and saves the resulting URL in `users.imageUrl`.
+
+Login JSON:
+
+```json
+{ "email": "user@example.com", "password": "minimum-8-characters" }
+```
+
+Google login JSON:
+
+```json
+{ "idToken": "token-returned-by-google-identity-services" }
+```
+
+The response contains an opaque `sessionToken`; store it securely on the client and send it as a bearer token when protected routes are added.
 
 ## 📜 Standard Response Format
 
