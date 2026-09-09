@@ -26,7 +26,8 @@ export class AuthController {
           })
         : stringValue(req.body.imageUrl);
       const data = imageUrl ? { ...result, user: await AuthService.updateImage(result.user.id, imageUrl) } : result;
-      return sendResponse(res, { statusCode: 201, message: 'Registration successful', data });
+      res.setHeader('Authorization', `Bearer ${data.sessionToken}`);
+      return sendResponse(res, { statusCode: 201, message: 'Registration successful' });
     } catch (error) {
       next(error);
     }
@@ -37,7 +38,9 @@ export class AuthController {
       const email = stringValue(req.body.email);
       const password = stringValue(req.body.password);
       if (!email || !password) throw ApiError.badRequest('email and password are required');
-      return sendResponse(res, { message: 'Login successful', data: await AuthService.login(email, password) });
+      const result = await AuthService.login(email, password);
+      res.setHeader('Authorization', `Bearer ${result.sessionToken}`);
+      return sendResponse(res, { message: 'Login successful' });
     } catch (error) {
       next(error);
     }
@@ -47,7 +50,9 @@ export class AuthController {
     try {
       const idToken = stringValue(req.body.idToken);
       if (!idToken) throw ApiError.badRequest('idToken is required');
-      return sendResponse(res, { message: 'Google login successful', data: await AuthService.loginWithGoogle(idToken) });
+      const result = await AuthService.loginWithGoogle(idToken);
+      res.setHeader('Authorization', `Bearer ${result.sessionToken}`);
+      return sendResponse(res, { message: 'Google login successful' });
     } catch (error) {
       next(error);
     }

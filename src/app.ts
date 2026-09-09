@@ -15,6 +15,7 @@ app.use(
   cors({
     origin: ENV.CORS_ORIGIN,
     credentials: true,
+    exposedHeaders: ['Authorization'],
   })
 );
 app.use(express.json({ limit: '6mb' }));

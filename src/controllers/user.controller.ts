@@ -42,7 +42,6 @@ export class UserController {
       return sendResponse(res, {
         statusCode: 201,
         message: 'User created successfully',
-        data: newUser,
       });
     } catch (error) {
       next(error);
