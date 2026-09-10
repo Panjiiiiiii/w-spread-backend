@@ -50,8 +50,10 @@ prisma/
 ## 🚀 Getting Started
 
 ### 1. Prasyarat
-- Node.js (v18+)
-- Database PostgreSQL (lokal atau cloud seperti Supabase / Neon / Railway)
+- Node.js v18 atau lebih baru
+- PostgreSQL 14+ (lokal atau cloud seperti Supabase, Neon, atau Railway)
+- Akun Google Cloud jika ingin menggunakan Google login
+- Project Supabase jika ingin mengunggah avatar melalui endpoint register
 
 ### 2. Instalasi Dependencies
 ```bash
@@ -59,24 +61,69 @@ npm install
 ```
 
 ### 3. Konfigurasi Environment
-Salin file `.env.example` menjadi `.env`:
+Salin file `.env.example` menjadi `.env`. Di Windows PowerShell, gunakan:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Di macOS/Linux, gunakan:
+
 ```bash
 cp .env.example .env
 ```
-Sesuaikan nilai `DATABASE_URL` di file `.env` dengan koneksi PostgreSQL Anda.
+
+Isi semua nilai yang diperlukan di `.env`:
+
+| Variable | Required | Keterangan |
+|---|---:|---|
+| `PORT` | No | Port HTTP server. Default `5000`. |
+| `NODE_ENV` | No | Environment aplikasi, biasanya `development` atau `production`. |
+| `DATABASE_URL` | Yes | Connection string PostgreSQL untuk Prisma. Gunakan pooled URL jika provider database menyediakannya. |
+| `DIRECT_URL` | Yes | Direct PostgreSQL connection string untuk migration Prisma. Untuk database lokal, biasanya sama dengan `DATABASE_URL`. |
+| `CORS_ORIGIN` | No | Origin frontend yang diizinkan, misalnya `http://localhost:3000`. Default `*` hanya cocok untuk development. |
+| `GOOGLE_CLIENT_ID` | Only for Google login | Web client ID dari Google Cloud. Kosongkan jika hanya memakai email/password. |
+| `SUPABASE_URL` | Only for image upload | Project URL Supabase, misalnya `https://<project-ref>.supabase.co`. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Only for image upload | Service role key dari Supabase. **Jangan pernah memasukkan key ini ke frontend atau commit ke Git.** |
+| `SUPABASE_STORAGE_BUCKET` | Only for image upload | Nama bucket Storage avatar. Default `avatars`. |
+| `SESSION_TTL_DAYS` | No | Masa berlaku session dalam hari. Default `30`. |
+
+Jangan membagikan atau meng-commit file `.env`. Gunakan `.env.example` sebagai template tanpa credentials.
+
+#### Setup Google OAuth (opsional)
+1. Buka **Google Cloud Console → APIs & Services → Credentials**.
+2. Buat **OAuth client ID** dengan application type **Web application**.
+3. Tambahkan origin frontend ke **Authorized JavaScript origins**.
+4. Masukkan client ID tersebut ke `GOOGLE_CLIENT_ID`.
+5. Pastikan frontend mengirim Google **ID token** ke `POST /api/v1/auth/google`.
+
+#### Setup Supabase Storage (opsional, untuk avatar)
+1. Buat atau pilih project di Supabase dan salin **Project URL** serta **service_role key** ke `.env`.
+2. Buat bucket Storage dengan nama yang sama seperti `SUPABASE_STORAGE_BUCKET` (default: `avatars`).
+3. Jadikan bucket tersebut **Public** karena backend mengembalikan public URL setelah upload.
+4. Pastikan ukuran file maksimal 5 MB dan tipe file yang digunakan adalah JPEG, PNG, atau WebP.
 
 ### 4. Setup Database & Prisma
-Generate Prisma Client:
+Pastikan PostgreSQL dapat diakses, lalu generate Prisma Client:
+
 ```bash
 npm run prisma:generate
 ```
 
-Jalankan database migration:
+Buat dan jalankan migration:
+
 ```bash
 npm run prisma:migrate
 ```
 
-Buka Prisma Studio (GUI Database):
+Untuk sinkronisasi schema tanpa membuat file migration (umumnya hanya untuk development), gunakan:
+
+```bash
+npm run prisma:push
+```
+
+Buka Prisma Studio (GUI database):
+
 ```bash
 npm run prisma:studio
 ```
