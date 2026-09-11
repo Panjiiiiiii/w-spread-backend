@@ -33,6 +33,10 @@ export class AuthService {
     return prisma.user.update({ where: { id: userId }, data: { imageUrl }, select: publicUser });
   }
 
+  static async getUser(userId: string) {
+    return prisma.user.findUniqueOrThrow({ where: { id: userId }, select: publicUser });
+  }
+
   static async login(emailInput: string, password: string) {
     const email = emailInput.trim().toLowerCase();
     const user = await prisma.user.findUnique({ where: { email } });

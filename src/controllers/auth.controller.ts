@@ -57,4 +57,25 @@ export class AuthController {
       next(error);
     }
   }
+
+  static async updateAvatar(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) throw ApiError.unauthorized('Authentication is required');
+      if (!req.file) throw ApiError.badRequest('Image is required');
+
+      const imageUrl = await StorageService.uploadUserImage(req.userId, {
+        buffer: req.file.buffer,
+        mimetype: req.file.mimetype,
+        originalname: req.file.originalname,
+      });
+      const user = await AuthService.updateImage(req.userId, imageUrl);
+
+      return sendResponse(res, {
+        message: 'Profile image updated successfully',
+        data: user,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }

@@ -177,6 +177,23 @@ Google users are matched by their verified email address and linked through `Aut
 
 The existing user endpoints currently do not require a session token. Authentication middleware should be added before exposing user administration publicly.
 
+## Update Profile Image
+
+```http
+PATCH /auth/me/avatar
+Authorization: Bearer <session-token>
+Content-Type: multipart/form-data
+```
+
+Form fields:
+
+| Field | Type | Required | Description |
+|---|---|---:|---|
+| `image` | file | Yes | JPEG, PNG, or WebP; maximum 5 MB |
+
+The image is uploaded to Supabase Storage and saved as the authenticated user's
+`imageUrl`. The response returns the updated user in `data`.
+
 ## Common errors
 
 ### Missing or invalid credentials
