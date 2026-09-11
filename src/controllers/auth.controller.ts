@@ -7,6 +7,7 @@ import { sendResponse } from '../utils/apiResponse';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
 const stringValue = (value: unknown) => (typeof value === 'string' ? value : undefined);
+const base64Image = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/;
 
 export class AuthController {
   static uploadAvatar = upload.single('image');
@@ -49,13 +50,27 @@ export class AuthController {
   static async updateAvatar(req: Request, res: Response, next: NextFunction) {
     try {
       if (!req.userId) throw ApiError.unauthorized('Authentication is required');
-      if (!req.file) throw ApiError.badRequest('Image is required');
+      let imageUrl: string;
 
-      const imageUrl = await StorageService.uploadUserImage(req.userId, {
-        buffer: req.file.buffer,
-        mimetype: req.file.mimetype,
-        originalname: req.file.originalname,
-      });
+      if (req.file) {
+        imageUrl = await StorageService.uploadUserImage(req.userId, {
+          buffer: req.file.buffer,
+          mimetype: req.file.mimetype,
+          originalname: req.file.originalname,
+        });
+      } else {
+        const imageData = stringValue(req.body.imageBase64);
+        const match = imageData?.match(base64Image);
+        if (!match) throw ApiError.badRequest('Image file or valid base64 image is required');
+
+        const fileName = stringValue(req.body.fileName) || 'profile-image.jpg';
+        imageUrl = await StorageService.uploadUserImage(req.userId, {
+          buffer: Buffer.from(match[2], 'base64'),
+          mimetype: match[1],
+          originalname: fileName,
+        });
+      }
+
       const user = await AuthService.updateImage(req.userId, imageUrl);
 
       return sendResponse(res, {

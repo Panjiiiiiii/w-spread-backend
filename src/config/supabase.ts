@@ -7,6 +7,9 @@ export const getSupabaseAdmin = () => {
   if (!ENV.SUPABASE_URL || !ENV.SUPABASE_SERVICE_ROLE_KEY) {
     throw new Error('Supabase storage is not configured');
   }
+  if (!/^https?:\/\/.+/i.test(ENV.SUPABASE_URL)) {
+    throw new Error('SUPABASE_URL must be a complete http(s) URL');
+  }
   client ??= createClient(ENV.SUPABASE_URL, ENV.SUPABASE_SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
   });

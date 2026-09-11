@@ -197,6 +197,18 @@ Form fields:
 The image is uploaded to Supabase Storage and saved as the authenticated user's
 `imageUrl`. The response returns the updated user in `data`.
 
+For native clients that cannot create a multipart file part, the same endpoint
+also accepts JSON:
+
+```json
+{
+  "imageBase64": "data:image/jpeg;base64,...",
+  "fileName": "profile-image.jpg"
+}
+```
+
+The supported MIME types are `image/jpeg`, `image/png`, and `image/webp`.
+
 ## Common errors
 
 ### Missing or invalid credentials
