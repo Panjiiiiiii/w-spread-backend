@@ -46,18 +46,6 @@ export class AuthController {
     }
   }
 
-  static async googleLogin(req: Request, res: Response, next: NextFunction) {
-    try {
-      const idToken = stringValue(req.body.idToken);
-      if (!idToken) throw ApiError.badRequest('idToken is required');
-      const result = await AuthService.loginWithGoogle(idToken);
-      res.setHeader('Authorization', `Bearer ${result.sessionToken}`);
-      return sendResponse(res, { message: 'Google login successful', data: result.user });
-    } catch (error) {
-      next(error);
-    }
-  }
-
   static async updateAvatar(req: Request, res: Response, next: NextFunction) {
     try {
       if (!req.userId) throw ApiError.unauthorized('Authentication is required');
