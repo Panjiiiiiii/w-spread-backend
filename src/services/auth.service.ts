@@ -50,10 +50,10 @@ export class AuthService {
   }
 
   static async loginWithGoogle(idToken: string) {
-    if (!ENV.GOOGLE_CLIENT_ID) throw ApiError.internal('Google login is not configured');
+    if (ENV.GOOGLE_CLIENT_IDS.length === 0) throw ApiError.internal('Google login is not configured');
     let ticket;
     try {
-      ticket = await googleClient.verifyIdToken({ idToken, audience: ENV.GOOGLE_CLIENT_ID });
+      ticket = await googleClient.verifyIdToken({ idToken, audience: ENV.GOOGLE_CLIENT_IDS });
     } catch {
       throw ApiError.unauthorized('Invalid Google ID token');
     }

@@ -165,6 +165,9 @@ Authorization: Bearer <session-token>
 ```
 
 Google users are matched by their verified email address and linked through `AuthAccount`.
+Configure `GOOGLE_CLIENT_IDS` as a comma-separated list containing every OAuth
+client ID used by the frontend (web, iOS, and Android). `GOOGLE_CLIENT_ID` is
+accepted as a backwards-compatible single-client fallback.
 
 ## Existing User Endpoints
 
