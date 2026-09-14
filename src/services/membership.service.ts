@@ -26,10 +26,27 @@ export class MembershipService {
       throw new Error('RevenueCat app user is already linked to another account');
     }
 
-    return prisma.user.update({
+    const user = await prisma.user.update({
       where: { id: userId },
       data: { revenueCatAppUserId: appUserId },
     });
+
+    const pendingEvents = await prisma.revenueCatEvent.findMany({
+      where: {
+        revenueCatAppUserId: appUserId,
+        userId: null,
+      },
+      orderBy: { eventCreatedAt: 'asc' },
+    });
+
+    for (const pendingEvent of pendingEvents) {
+      await this.processRevenueCatEvent(
+        pendingEvent.eventId,
+        pendingEvent.payload as Record<string, unknown>,
+      );
+    }
+
+    return user;
   }
 
   static async getUserMembership(userId: string) {
@@ -98,9 +115,26 @@ export class MembershipService {
           : null;
     const toDate = (value: unknown) => typeof value === 'number' ? new Date(value) : null;
     const status = statusMap[eventType] || MembershipStatus.INCOMPLETE;
-    if (!user) {
-      throw new Error(`RevenueCat user is not linked to a W-Spread account: ${appUserId}`);
-    }
+    const eventDate = toDate(payload.event_timestamp_ms) || new Date();
+
+    await prisma.revenueCatEvent.upsert({
+      where: { eventId },
+      create: {
+        eventId,
+        revenueCatAppUserId: appUserId,
+        userId: user?.id,
+        eventType,
+        eventCreatedAt: eventDate,
+        payload: payload as Prisma.InputJsonValue,
+      },
+      update: {
+        userId: user?.id,
+      },
+    });
+
+    // RevenueCat may deliver the webhook before the app-user link request.
+    // Keep the event so linkRevenueCatUser can replay it after linking.
+    if (!user) return;
 
     const data: Prisma.MembershipSubscriptionUncheckedCreateInput = {
       userId: user.id,
@@ -116,21 +150,8 @@ export class MembershipService {
       canceledAt: status === MembershipStatus.CANCELED ? new Date() : null,
       autoRenewing: typeof payload.auto_renewal_status === 'string' ? payload.auto_renewal_status === 'AUTORENEW_ENABLED' : null,
       environment: typeof payload.environment === 'string' ? payload.environment : null,
-      lastEventAt: toDate(payload.event_timestamp_ms) || new Date(),
+      lastEventAt: eventDate,
     };
-
-    await prisma.revenueCatEvent.upsert({
-      where: { eventId },
-      create: {
-        eventId,
-        revenueCatAppUserId: appUserId,
-        userId: user?.id,
-        eventType,
-        eventCreatedAt: data.lastEventAt,
-        payload: payload as Prisma.InputJsonValue,
-      },
-      update: {},
-    });
 
     await prisma.user.update({
       where: { id: user.id },
