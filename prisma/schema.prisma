@@ -37,6 +37,11 @@ enum SubscriptionStore {
   UNKNOWN
 }
 
+enum TransactionType {
+  REVENUE
+  EXPENSE
+}
+
 model User {
   id                  String                   @id @default(uuid())
   email               String                   @unique
@@ -52,8 +57,43 @@ model User {
   sessions            Session[]
   subscriptions       MembershipSubscription[]
   revenueCatEvents    RevenueCatEvent[]
+  transactions        Transaction[]
+  predictions         Prediction[]
 
   @@map("users")
+}
+
+model Transaction {
+  id         String          @id @default(uuid())
+  userId     String
+  amount     Decimal         @db.Decimal(14, 2)
+  type       TransactionType
+  category   String?
+  occurredAt DateTime
+  createdAt  DateTime        @default(now())
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, occurredAt])
+  @@map("transactions")
+}
+
+model Prediction {
+  id                     String   @id @default(uuid())
+  userId                 String
+  currentBalance         Decimal  @db.Decimal(14, 2)
+  predictedBalance       Decimal  @db.Decimal(14, 2)
+  conservativeBalance    Decimal  @db.Decimal(14, 2)
+  timeframeMonths        Int
+  averageMonthlyRevenue  Decimal  @db.Decimal(14, 2)
+  averageMonthlyExpenses Decimal  @db.Decimal(14, 2)
+  payrollImpact          Decimal  @db.Decimal(14, 2)
+  vendorImpact           Decimal  @db.Decimal(14, 2)
+  riskLevel              String
+  createdAt              DateTime @default(now())
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("predictions")
 }
 
 model AuthAccount {
