@@ -116,6 +116,10 @@ export class MembershipService {
     const toDate = (value: unknown) => typeof value === 'number' ? new Date(value) : null;
     const status = statusMap[eventType] || MembershipStatus.INCOMPLETE;
     const eventDate = toDate(payload.event_timestamp_ms) || new Date();
+    const plan = await prisma.membershipPlan.findUnique({
+      where: { productIdentifier },
+      select: { id: true },
+    });
 
     await prisma.revenueCatEvent.upsert({
       where: { eventId },
@@ -138,6 +142,7 @@ export class MembershipService {
 
     const data: Prisma.MembershipSubscriptionUncheckedCreateInput = {
       userId: user.id,
+      planId: plan?.id || null,
       revenueCatAppUserId: appUserId,
       productIdentifier,
       entitlementIdentifier,
