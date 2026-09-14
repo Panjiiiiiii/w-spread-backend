@@ -39,16 +39,3 @@ ALTER TABLE "transactions" ADD CONSTRAINT "transactions_userId_fkey"
   FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "predictions" ADD CONSTRAINT "predictions_userId_fkey"
   FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- These policies protect direct Supabase client access. The Prisma API uses
--- the database service connection and still scopes every query by userId.
-ALTER TABLE "transactions" ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "predictions" ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "transactions_owner_select" ON "transactions"
-  FOR SELECT USING (auth.uid()::text = "userId");
-CREATE POLICY "transactions_owner_insert" ON "transactions"
-  FOR INSERT WITH CHECK (auth.uid()::text = "userId");
-CREATE POLICY "predictions_owner_select" ON "predictions"
-  FOR SELECT USING (auth.uid()::text = "userId");
-CREATE POLICY "predictions_owner_insert" ON "predictions"
-  FOR INSERT WITH CHECK (auth.uid()::text = "userId");

@@ -18,6 +18,14 @@ const statusMap: Record<string, MembershipStatus> = {
 
 export class MembershipService {
   static async linkRevenueCatUser(userId: string, appUserId: string) {
+    const existingUser = await prisma.user.findUnique({
+      where: { revenueCatAppUserId: appUserId },
+      select: { id: true },
+    });
+    if (existingUser && existingUser.id !== userId) {
+      throw new Error('RevenueCat app user is already linked to another account');
+    }
+
     return prisma.user.update({
       where: { id: userId },
       data: { revenueCatAppUserId: appUserId },
@@ -72,14 +80,23 @@ export class MembershipService {
     const eventType = typeof payload.type === 'string' ? payload.type : '';
     if (!appUserId || !eventType) throw new Error('RevenueCat webhook payload is missing app_user_id or type');
 
-    const user = await prisma.user.findUnique({ where: { revenueCatAppUserId: appUserId } });
+    const aliases = Array.isArray(payload.aliases)
+      ? payload.aliases.filter((value): value is string => typeof value === 'string')
+      : [];
+    const user = await prisma.user.findFirst({
+      where: { revenueCatAppUserId: { in: [appUserId, ...aliases] } },
+    });
     const productIdentifier = typeof payload.product_id === 'string' ? payload.product_id : 'unknown';
     const entitlementIds = Array.isArray(payload.entitlement_ids) ? payload.entitlement_ids : [];
     const entitlementIdentifier = typeof entitlementIds[0] === 'string' ? entitlementIds[0] : null;
     const toDate = (value: unknown) => typeof value === 'number' ? new Date(value) : null;
     const status = statusMap[eventType] || MembershipStatus.INCOMPLETE;
+    if (!user) {
+      throw new Error(`RevenueCat user is not linked to a W-Spread account: ${appUserId}`);
+    }
+
     const data: Prisma.MembershipSubscriptionUncheckedCreateInput = {
-      userId: user?.id || '',
+      userId: user.id,
       revenueCatAppUserId: appUserId,
       productIdentifier,
       entitlementIdentifier,
@@ -108,16 +125,14 @@ export class MembershipService {
       update: {},
     });
 
-    if (user) {
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { revenueCatAppUserId: appUserId },
-      });
-      await prisma.membershipSubscription.upsert({
-        where: { userId_productIdentifier: { userId: user.id, productIdentifier } },
-        create: data,
-        update: { ...data, userId: undefined },
-      });
-    }
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { revenueCatAppUserId: appUserId },
+    });
+    await prisma.membershipSubscription.upsert({
+      where: { userId_productIdentifier: { userId: user.id, productIdentifier } },
+      create: data,
+      update: { ...data, userId: undefined },
+    });
   }
 }

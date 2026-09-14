@@ -29,7 +29,8 @@ export class MembershipController {
   static async revenueCatWebhook(req: Request, res: Response, next: NextFunction) {
     try {
       const configuredSecret = ENV.REVENUECAT_WEBHOOK_SECRET;
-      if (!configuredSecret || req.get('Authorization') !== `Bearer ${configuredSecret}`) {
+      const authorization = req.get('Authorization');
+      if (!configuredSecret || authorization !== `Bearer ${configuredSecret}`) {
         throw ApiError.unauthorized('Invalid RevenueCat webhook authorization');
       }
       const event = req.body?.event;
