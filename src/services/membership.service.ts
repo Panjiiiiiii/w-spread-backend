@@ -53,7 +53,8 @@ export class MembershipService {
       };
     }
 
-    const entitlement = subscription.entitlementIdentifier?.toLowerCase() || '';
+    const entitlement = subscription.entitlementIdentifier?.toLowerCase()
+      || subscription.productIdentifier.toLowerCase();
     const tier = entitlement.includes('enterprise')
       ? 'enterprise'
       : entitlement.includes('business')
@@ -88,7 +89,13 @@ export class MembershipService {
     });
     const productIdentifier = typeof payload.product_id === 'string' ? payload.product_id : 'unknown';
     const entitlementIds = Array.isArray(payload.entitlement_ids) ? payload.entitlement_ids : [];
-    const entitlementIdentifier = typeof entitlementIds[0] === 'string' ? entitlementIds[0] : null;
+    const entitlementIdentifier = typeof entitlementIds[0] === 'string'
+      ? entitlementIds[0]
+      : productIdentifier.includes('enterprise')
+        ? 'enterprise'
+        : productIdentifier.includes('business')
+          ? 'business'
+          : null;
     const toDate = (value: unknown) => typeof value === 'number' ? new Date(value) : null;
     const status = statusMap[eventType] || MembershipStatus.INCOMPLETE;
     if (!user) {
