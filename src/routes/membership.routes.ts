@@ -6,6 +6,7 @@ const router = Router();
 
 router.get('/me', requireAuth, MembershipController.getMine);
 router.patch('/revenuecat-user', requireAuth, MembershipController.linkRevenueCatUser);
+router.post('/sync', requireAuth, MembershipController.sync);
 router.post('/revenuecat/webhook', MembershipController.revenueCatWebhook);
 
 export default router;
