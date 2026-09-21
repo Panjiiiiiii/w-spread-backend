@@ -2,8 +2,23 @@ import { Prisma, StatementBank, StatementUploadStatus, TransactionType } from '@
 import { prisma } from '../config/database';
 import { ApiError } from '../utils/apiError';
 import { StorageService } from './storage.service';
+import { MembershipService } from './membership.service';
 
 const RAW_TEXT_PREVIEW_LENGTH = 2000;
+
+// Free tier ("The Owner" / no active RevenueCat entitlement) is capped at
+// 20 statement upload attempts per calendar month, matching the "20 tries
+// for upload statement" allowance already advertised for the Business plan
+// in MembershipScreen.js. Paid tiers (business/enterprise) are unlimited.
+const FREE_TIER_MONTHLY_UPLOAD_LIMIT = 20;
+
+export interface UploadLimitStatus {
+  tier: string | null;
+  unlimited: boolean;
+  limit: number | null;
+  used: number;
+  remaining: number | null;
+}
 
 export interface ParsedTransaction {
   date: Date;
@@ -293,6 +308,33 @@ function toSummary(
 
 export class StatementService {
   /**
+   * Free-tier upload allowance for the current calendar month. Every upload
+   * ATTEMPT counts toward the limit (including ones that end up FAILED),
+   * mirroring how the count is enforced in `processPdf` — the cost is the
+   * parsing attempt itself, not just successful parses.
+   */
+  static async getUploadLimitStatus(userId: string): Promise<UploadLimitStatus> {
+    const membership = await MembershipService.getUserMembership(userId);
+    const tier = membership?.tier ?? null;
+    const unlimited = tier === 'business' || tier === 'enterprise';
+
+    const startOfMonth = new Date();
+    startOfMonth.setUTCDate(1);
+    startOfMonth.setUTCHours(0, 0, 0, 0);
+
+    const used = await prisma.statementUpload.count({
+      where: { userId, createdAt: { gte: startOfMonth } },
+    });
+
+    if (unlimited) {
+      return { tier, unlimited: true, limit: null, used, remaining: null };
+    }
+
+    const limit = FREE_TIER_MONTHLY_UPLOAD_LIMIT;
+    return { tier, unlimited: false, limit, used, remaining: Math.max(0, limit - used) };
+  }
+
+  /**
    * Extracts raw text from a PDF buffer, parses transaction lines, computes
    * monthly average revenue/expense, and persists both the transaction rows
    * (feeding the existing prediction engine via the `Transaction` table) and
@@ -306,8 +348,20 @@ export class StatementService {
    * `rawTextPreview` if text extraction itself succeeded), then the
    * original error is re-thrown so the controller's existing 4xx behavior
    * is unchanged.
+   *
+   * Free-tier users are capped at `FREE_TIER_MONTHLY_UPLOAD_LIMIT` attempts
+   * per calendar month; this is checked BEFORE the file is uploaded to
+   * storage or a row is created, so an exhausted user's blocked attempt
+   * leaves no trace and doesn't consume storage/DB space.
    */
   static async processPdf(userId: string, fileBuffer: Buffer, fileName: string): Promise<StatementSummary> {
+    const limitStatus = await this.getUploadLimitStatus(userId);
+    if (!limitStatus.unlimited && limitStatus.remaining !== null && limitStatus.remaining <= 0) {
+      throw ApiError.forbidden(
+        `You've reached your monthly limit of ${limitStatus.limit} statement uploads on the free plan. Upgrade to Business or Enterprise for unlimited uploads.`
+      );
+    }
+
     const filePath = await StorageService.uploadStatementFile(userId, {
       buffer: fileBuffer,
       mimetype: 'application/pdf',

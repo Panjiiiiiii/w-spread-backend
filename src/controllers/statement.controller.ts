@@ -48,6 +48,21 @@ export class StatementController {
   }
 
   /**
+   * GET /statements/usage — current calendar-month upload count vs the
+   * free-tier limit (unlimited for business/enterprise). Used by the
+   * frontend to render the "X of 20 tries" countdown and to disable the
+   * upload button once exhausted.
+   */
+  static async usage(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) throw ApiError.unauthorized('Authentication is required');
+      return sendResponse(res, { data: await StatementService.getUploadLimitStatus(req.userId) });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * GET /statements — paginated upload history for the current user,
    * newest first. Deliberately excludes `filePath`/signed URLs; use the
    * `/statements/:id/file` endpoint for that, scoped per item.
