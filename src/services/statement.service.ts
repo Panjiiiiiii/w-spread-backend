@@ -34,73 +34,79 @@ const MONTH_NAMES_ID: Record<string, number> = {
   jul: 6, agu: 7, aug: 7, sep: 8, okt: 9, oct: 9, nov: 10, des: 11, dec: 11,
 };
 
-// Matches amounts formatted with Indonesian thousands separator (.) and
-// optional decimal comma, e.g. "1.250.000,00" or "1.250.000".
-const AMOUNT_PATTERN = /\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?/;
+// A transaction block starts with "DD/MM <description...>" (BCA's actual
+// mutation layout has no year on the date; the statement's period supplies
+// the year via detectStatementYear).
+const BLOCK_START_PATTERN = /^(\d{1,2})\/(\d{1,2})\s+(.+)$/;
 
-/**
- * Line-based heuristic parser for BCA / Mandiri / BRI e-statement text.
- * pdf-parse only returns flattened text (no true table/column structure),
- * so bank statement rows are recovered from consistent per-line patterns:
- * a leading date, a trailing amount, and a trailing CR/DB (or DB/CR-style)
- * mutation indicator. This covers the common single-line-per-transaction
- * layout used by BCA, Mandiri, and BRI text-based (non-scanned) statements.
- *
- * NOTE: this has not been validated against real bank statement samples in
- * this environment. If parsing accuracy needs improvement for a specific
- * bank's actual layout, tune BANK_LINE_PATTERNS below against real exports.
- */
-const BANK_LINE_PATTERNS: Array<{ bank: StatementBank; pattern: RegExp }> = [
-  // BCA mutation line: "01/02  TRANSFER MASUK  1.500.000,00  CR"
-  {
-    bank: StatementBank.BCA,
-    pattern: new RegExp(
-      `^(\\d{2}/\\d{2})\\s+(.+?)\\s+(${AMOUNT_PATTERN.source})\\s*(CR|DB)$`,
-      'i'
-    ),
-  },
-  // Mandiri mutation line: "01/02/2026  TRANSFER MASUK  1.500.000,00  CR"
-  {
-    bank: StatementBank.MANDIRI,
-    pattern: new RegExp(
-      `^(\\d{2}/\\d{2}/\\d{2,4})\\s+(.+?)\\s+(${AMOUNT_PATTERN.source})\\s*(CR|DB)$`,
-      'i'
-    ),
-  },
-  // BRI mutation line: "01-02-2026  TRANSFER MASUK  1.500.000,00  K" (K=Kredit/CR, D=Debit/DB)
-  {
-    bank: StatementBank.BRI,
-    pattern: new RegExp(
-      `^(\\d{2}-\\d{2}-\\d{2,4})\\s+(.+?)\\s+(${AMOUNT_PATTERN.source})\\s*(K|D)$`,
-      'i'
-    ),
-  },
+// A bare, unformatted amount line, e.g. "1500000.00" or "16000.00" — this is
+// pdf-parse's flattened rendering of the amount that visually sits in a
+// separate column from the date/description in the original PDF table.
+// Deliberately excludes thousands-separator commas so it doesn't collide
+// with the formatted amount+balance line below.
+const BARE_AMOUNT_LINE = /^\d+(?:\.\d{1,2})?$/;
+
+// The formatted "MUTASI" (and optionally "SALDO") line that closes a block,
+// e.g. "22,000.00 DB 3,946,288.89", "100,000.00 514,776.89", "22,000.00".
+// Group 2 (DB) is present only for debits; absent for credits.
+const FORMATTED_AMOUNT_LINE = /^([\d,]+\.\d{2})\s*(DB)?\s*(?:[\d,]+\.\d{2})?$/i;
+
+// Repeated per-page letterhead, disclaimers, and pagination noise that must
+// never be mistaken for a transaction block. Matched against the full,
+// whitespace-normalized line.
+const BOILERPLATE_PATTERNS: RegExp[] = [
+  /^REKENING TAHAPAN/i,
+  /^K\s*C\s*U\s+/i,
+  /^KCU\s+/i,
+  /^SUKUN$/i,
+  /^RT\d/i,
+  /^JL\.\s/i,
+  /^MALANG\s/i,
+  /^INDONESIA$/i,
+  /^NO\.\s*REKENING/i,
+  /^HALAMAN\s*:/i,
+  /^PERIODE\s*:/i,
+  /^MATA UANG\s*:/i,
+  /^FASILITAS\s*:/i,
+  /^KETERANGAN\s*:/i,
+  /^C\s*A\s*T\s*A\s*T\s*A\s*N\s*:/i,
+  /^A\s+p\s+a\s+b\s+i\s+l\s+a/i, // the letter-spaced disclaimer paragraph
+  /^R\s+e\s+k\s+e\s+n\s+i\s+n\s+g/i,
+  /^t\s+e\s+l\s+a\s+h/i,
+  /^L\s+a\s+p\s+o\s+r\s+a\s+n/i,
+  /^•/,
+  /^TANGGAL\s+KETERANGAN/i,
+  /^\d{1,3}\s*\/\s*\d{1,3}$/, // page-number line, e.g. "1 /10"
+  /^--\s*\d+\s+of\s+\d+\s*--$/i,
+  /^Bersambung ke halaman berikut$/i,
 ];
 
-// Generic fallback: any line with a leading date-like token, a trailing
-// amount, and an explicit CR/DB/K/D marker, regardless of separator style.
-const GENERIC_LINE_PATTERN = new RegExp(
-  `^(\\d{1,2}[\\/-]\\d{1,2}(?:[\\/-]\\d{2,4})?)\\s+(.+?)\\s+(${AMOUNT_PATTERN.source})\\s*(CR|DB|K|D)$`,
-  'i'
-);
+// Block-terminating summary lines. These carry the account's own totals
+// (used for validation) but are never individual transactions.
+const SUMMARY_LINE_PATTERN = /^(SALDO AWAL|SALDO AKHIR|MUTASI CR|MUTASI DB)\s*:/i;
 
-function parseAmount(raw: string): number {
-  // "1.250.000,50" -> 1250000.50 ; "1.250.000" -> 1250000
-  const normalized = raw.replace(/\./g, '').replace(',', '.');
+function isBoilerplate(line: string): boolean {
+  return BOILERPLATE_PATTERNS.some((pattern) => pattern.test(line));
+}
+
+function parseFormattedAmount(raw: string): number {
+  // "1.250.000,50" (Mandiri/BRI-style) or "1,250,000.00" (BCA-style) -> 1250000.5 / 1250000
+  const normalized = raw.includes(',') && raw.lastIndexOf(',') > raw.lastIndexOf('.')
+    ? raw.replace(/\./g, '').replace(',', '.') // "1.250.000,50" style
+    : raw.replace(/,/g, ''); // "1,250,000.00" style
   const value = Number(normalized);
   return Number.isFinite(value) ? value : 0;
 }
 
-function parseDate(raw: string, statementYearHint: number): Date | null {
-  const parts = raw.split(/[\/-]/).map((part) => part.trim());
-  if (parts.length < 2) return null;
-  const day = Number(parts[0]);
-  const month = Number(parts[1]);
-  let year = parts.length >= 3 ? Number(parts[2]) : statementYearHint;
-  if (year < 100) year += 2000;
-  if (!Number.isFinite(day) || !Number.isFinite(month) || !Number.isFinite(year)) return null;
+function parseBareAmount(raw: string): number {
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function parseDate(day: number, month: number, statementYearHint: number): Date | null {
+  if (!Number.isFinite(day) || !Number.isFinite(month)) return null;
   if (day < 1 || day > 31 || month < 1 || month > 12) return null;
-  const date = new Date(Date.UTC(year, month - 1, day));
+  const date = new Date(Date.UTC(statementYearHint, month - 1, day));
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
@@ -116,7 +122,7 @@ function detectBank(text: string): StatementBank {
 
 function detectStatementYear(text: string): number {
   // Looks for a 4-digit year near common Indonesian period labels
-  // (e.g. "PERIODE : MEI 2026"), falling back to the current year.
+  // (e.g. "PERIODE : AGUSTUS 2026"), falling back to the current year.
   const periodeMatch = text.match(/PERIODE\s*:?\s*[A-Za-z]*\s*(\d{4})/i);
   if (periodeMatch) return Number(periodeMatch[1]);
   const anyYearMatch = text.match(/\b(20\d{2})\b/);
@@ -125,10 +131,36 @@ function detectStatementYear(text: string): number {
 }
 
 /**
- * Extracts an array of transaction records from raw bank statement text.
- * Tries bank-specific line patterns first (based on the detected bank),
- * falling back to a generic date+amount+CR/DB pattern for any unmatched
- * lines or unrecognized banks.
+ * Block-based parser for BCA e-statement text (validated against a real
+ * "REKENING TAHAPAN XPRESI" export, including its "POKET" sub-accounts).
+ *
+ * pdf-parse flattens the PDF's transaction table into plain lines with no
+ * column structure, and each real transaction spans several lines rather
+ * than one:
+ *
+ *   16/08 TRANSAKSI DEBIT TGL: 16/08      <- block start: date + description
+ *   QR 915                                <- description continued
+ *   00000.00MissCuan                      <- description continued
+ *   17,000.00 DB 493,476.89               <- formatted amount [+ DB] [+ balance]
+ *
+ * or, for a credit with a marker embedded in the description instead of the
+ * amount line:
+ *
+ *   17/08 TRSF E-BANKING CR 1708/FTSCY/WS95031   <- block start (has "CR")
+ *   16000.00                                     <- bare amount line
+ *   SABRINA CITRA RAMA                           <- description continued
+ *   16,000.00 482,476.89                         <- formatted amount, no DB
+ *
+ * Algorithm: split the text into blocks at each "DD/MM ..." start line
+ * (skipping boilerplate/header/footer lines and admin-only blocks like
+ * "SALDO AWAL"/"SALDO AKHIR"/"MUTASI ..." totals), then within each block:
+ *   - amount: prefer the last formatted amount line's value; fall back to
+ *     the first bare amount line if no formatted line is present.
+ *   - direction: a standalone "DB" anywhere in the block means debit; a
+ *     standalone "CR" (typically in the date line, e.g. "TRSF E-BANKING CR")
+ *     means credit; if the block has neither marker (e.g. "BUNGA POKET"
+ *     interest), it's treated as a credit since the observed unmarked cases
+ *     were incoming amounts.
  */
 export function parseStatementText(text: string): { bank: StatementBank; transactions: ParsedTransaction[] } {
   const bank = detectBank(text);
@@ -136,30 +168,81 @@ export function parseStatementText(text: string): { bank: StatementBank; transac
   const lines = text
     .split(/\r?\n/)
     .map((line) => line.replace(/\s+/g, ' ').trim())
-    .filter(Boolean);
+    .filter((line) => line.length > 0 && !isBoilerplate(line));
 
-  const specificPattern = BANK_LINE_PATTERNS.find((entry) => entry.bank === bank)?.pattern;
   const transactions: ParsedTransaction[] = [];
 
+  let currentBlock: { day: number; month: number; descriptionLines: string[] } | null = null;
+
+  const flushBlock = () => {
+    if (!currentBlock) return;
+    const block = currentBlock;
+    currentBlock = null;
+
+    const firstLine = block.descriptionLines[0] || '';
+    if (/^SALDO AWAL\b/i.test(firstLine) || /^TRANSAKSI TIDAK TERSEDIA/i.test(firstLine)) {
+      // Opening balance / "no transactions" placeholder, not a real movement.
+      return;
+    }
+
+    let formattedAmount: number | null = null;
+    let hasFormattedDB = false;
+    let bareAmount: number | null = null;
+    let hasStandaloneCR = false;
+    let hasStandaloneDB = false;
+
+    for (const line of block.descriptionLines) {
+      const formattedMatch = line.match(FORMATTED_AMOUNT_LINE);
+      if (formattedMatch) {
+        formattedAmount = parseFormattedAmount(formattedMatch[1]);
+        hasFormattedDB = Boolean(formattedMatch[2]);
+        continue;
+      }
+      if (bareAmount === null && BARE_AMOUNT_LINE.test(line)) {
+        bareAmount = parseBareAmount(line);
+      }
+      if (/\bDB\b/.test(line) || /\bDR\b/.test(line)) hasStandaloneDB = true;
+      if (/\bCR\b/.test(line)) hasStandaloneCR = true;
+    }
+
+    const amount = formattedAmount ?? bareAmount ?? 0;
+    if (amount <= 0) return;
+
+    // Direction priority: the formatted amount line's own "DB" suffix is the
+    // most reliable signal (present only for debits in the observed data).
+    // Otherwise fall back to any standalone DB/DR or CR token in the block.
+    const type: 'CR' | 'DB' = hasFormattedDB || (!hasStandaloneCR && hasStandaloneDB) ? 'DB' : 'CR';
+
+    const date = parseDate(block.day, block.month, yearHint);
+    if (!date) return;
+
+    const description = firstLine.replace(/^\d{1,2}\/\d{1,2}\s+/, '').trim().slice(0, 500) || 'Unlabeled transaction';
+
+    transactions.push({ date, description, amount, type });
+  };
+
   for (const line of lines) {
-    const match = (specificPattern && line.match(specificPattern)) || line.match(GENERIC_LINE_PATTERN);
-    if (!match) continue;
+    if (SUMMARY_LINE_PATTERN.test(line)) {
+      flushBlock();
+      continue;
+    }
 
-    const [, rawDate, rawDescription, rawAmount, rawMarker] = match;
-    const date = parseDate(rawDate, yearHint);
-    const amount = parseAmount(rawAmount);
-    if (!date || amount <= 0) continue;
+    const startMatch = line.match(BLOCK_START_PATTERN);
+    if (startMatch) {
+      flushBlock();
+      currentBlock = {
+        day: Number(startMatch[1]),
+        month: Number(startMatch[2]),
+        descriptionLines: [line],
+      };
+      continue;
+    }
 
-    const marker = rawMarker.toUpperCase();
-    const type: 'CR' | 'DB' = marker === 'CR' || marker === 'K' ? 'CR' : 'DB';
-
-    transactions.push({
-      date,
-      description: rawDescription.trim().slice(0, 500) || 'Unlabeled transaction',
-      amount,
-      type,
-    });
+    if (currentBlock) {
+      currentBlock.descriptionLines.push(line);
+    }
   }
+  flushBlock();
 
   return { bank, transactions };
 }
