@@ -95,23 +95,38 @@ enum StatementBank {
   UNKNOWN
 }
 
-// Persists a parsed e-statement upload's metadata and the resulting
-// financial profile summary (monthly average revenue/expense), so the
-// user's most recent statement-derived baseline is queryable without
-// recomputing from raw transactions every time.
+enum StatementUploadStatus {
+  PROCESSING
+  SUCCESS
+  FAILED
+}
+
+// Persists a log of every e-statement upload attempt, successful or failed,
+// including the resulting financial profile summary (monthly average
+// revenue/expense) on success and a human-readable failure reason
+// otherwise, so the upload history screen has something to show for every
+// attempt instead of failed uploads vanishing without a trace.
 model StatementUpload {
-  id                String        @id @default(uuid())
+  id                String                @id @default(uuid())
   userId            String
   fileName          String
-  bank              StatementBank @default(UNKNOWN)
+  status            StatementUploadStatus @default(PROCESSING)
+  errorMessage      String?
+  // Supabase Storage object path (private bucket) of the original PDF, not
+  // a public URL. Signed URLs are issued on demand via StorageService.
+  filePath          String?
+  // First ~2000 chars of the raw extracted text, kept for debugging future
+  // "no transactions recognized" cases without re-downloading the file.
+  rawTextPreview    String?
+  bank              StatementBank         @default(UNKNOWN)
   periodStart       DateTime?
   periodEnd         DateTime?
-  transactionCount  Int           @default(0)
-  monthlyAvgRevenue Decimal       @db.Decimal(14, 2)
-  monthlyAvgExpense Decimal       @db.Decimal(14, 2)
-  totalMonths       Int           @default(1)
-  createdAt         DateTime      @default(now())
-  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactionCount  Int                   @default(0)
+  monthlyAvgRevenue Decimal?              @db.Decimal(14, 2)
+  monthlyAvgExpense Decimal?              @db.Decimal(14, 2)
+  totalMonths       Int                   @default(1)
+  createdAt         DateTime              @default(now())
+  user              User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions      Transaction[]
 
   @@index([userId, createdAt])

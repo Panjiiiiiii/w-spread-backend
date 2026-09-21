@@ -1,6 +1,9 @@
-import { Prisma, StatementBank, TransactionType } from '@prisma/client';
+import { Prisma, StatementBank, StatementUploadStatus, TransactionType } from '@prisma/client';
 import { prisma } from '../config/database';
 import { ApiError } from '../utils/apiError';
+import { StorageService } from './storage.service';
+
+const RAW_TEXT_PREVIEW_LENGTH = 2000;
 
 export interface ParsedTransaction {
   date: Date;
@@ -18,12 +21,14 @@ export interface ExpenseCategoryBreakdown {
 export interface StatementSummary {
   id: string;
   fileName: string;
+  status: StatementUploadStatus;
+  errorMessage: string | null;
   bank: StatementBank;
   periodStart: Date | null;
   periodEnd: Date | null;
   transactionCount: number;
-  monthlyAvgRevenue: number;
-  monthlyAvgExpense: number;
+  monthlyAvgRevenue: number | null;
+  monthlyAvgExpense: number | null;
   totalMonths: number;
   createdAt: Date;
   topExpenseCategories: ExpenseCategoryBreakdown[];
@@ -252,14 +257,97 @@ function monthsBetween(start: Date, end: Date): number {
   return Math.max(1, months);
 }
 
+function toSummary(
+  upload: {
+    id: string;
+    fileName: string;
+    status: StatementUploadStatus;
+    errorMessage: string | null;
+    bank: StatementBank;
+    periodStart: Date | null;
+    periodEnd: Date | null;
+    transactionCount: number;
+    monthlyAvgRevenue: Prisma.Decimal | null;
+    monthlyAvgExpense: Prisma.Decimal | null;
+    totalMonths: number;
+    createdAt: Date;
+  },
+  topExpenseCategories: ExpenseCategoryBreakdown[]
+): StatementSummary {
+  return {
+    id: upload.id,
+    fileName: upload.fileName,
+    status: upload.status,
+    errorMessage: upload.errorMessage,
+    bank: upload.bank,
+    periodStart: upload.periodStart,
+    periodEnd: upload.periodEnd,
+    transactionCount: upload.transactionCount,
+    monthlyAvgRevenue: upload.monthlyAvgRevenue === null ? null : Number(upload.monthlyAvgRevenue),
+    monthlyAvgExpense: upload.monthlyAvgExpense === null ? null : Number(upload.monthlyAvgExpense),
+    totalMonths: upload.totalMonths,
+    createdAt: upload.createdAt,
+    topExpenseCategories,
+  };
+}
+
 export class StatementService {
   /**
    * Extracts raw text from a PDF buffer, parses transaction lines, computes
    * monthly average revenue/expense, and persists both the transaction rows
    * (feeding the existing prediction engine via the `Transaction` table) and
-   * a `StatementUpload` summary row.
+   * a `StatementUpload` log row.
+   *
+   * A `StatementUpload` row is created (status PROCESSING) and the original
+   * PDF is uploaded to private storage BEFORE any parsing happens, so every
+   * upload attempt — including ones that fail to parse — leaves a durable
+   * record with the original file attached. On failure the same row is
+   * updated to FAILED with a human-readable `errorMessage` (and a
+   * `rawTextPreview` if text extraction itself succeeded), then the
+   * original error is re-thrown so the controller's existing 4xx behavior
+   * is unchanged.
    */
   static async processPdf(userId: string, fileBuffer: Buffer, fileName: string): Promise<StatementSummary> {
+    const filePath = await StorageService.uploadStatementFile(userId, {
+      buffer: fileBuffer,
+      mimetype: 'application/pdf',
+      originalname: fileName,
+    });
+
+    const upload = await prisma.statementUpload.create({
+      data: {
+        userId,
+        fileName,
+        filePath,
+        status: StatementUploadStatus.PROCESSING,
+      },
+    });
+
+    try {
+      const summary = await this.parseAndPersist(userId, upload.id, fileBuffer);
+      return summary;
+    } catch (error) {
+      const errorMessage = error instanceof ApiError ? error.message : 'Failed to process the uploaded statement.';
+      await prisma.statementUpload.update({
+        where: { id: upload.id },
+        data: { status: StatementUploadStatus.FAILED, errorMessage },
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Runs the actual PDF text extraction + parsing + computation, and on
+   * success updates the given `StatementUpload` row to SUCCESS. Throws
+   * (without updating the row itself — the caller handles marking it
+   * FAILED) on any parse failure, so `rawTextPreview` can still be attached
+   * here even when zero transactions are found.
+   */
+  private static async parseAndPersist(
+    userId: string,
+    uploadId: string,
+    fileBuffer: Buffer
+  ): Promise<StatementSummary> {
     // Lazy-loaded: pdf-parse pulls in canvas/DOMMatrix-related machinery at
     // module load time, which crashes serverless cold starts on platforms
     // (e.g. Vercel) missing the optional @napi-rs/canvas native binary.
@@ -288,8 +376,18 @@ export class StatementService {
       throw ApiError.badRequest('The PDF appears to be empty or is a scanned image without extractable text.');
     }
 
+    const rawTextPreview = text.slice(0, RAW_TEXT_PREVIEW_LENGTH);
+
     const { bank, transactions } = parseStatementText(text);
     if (transactions.length === 0) {
+      // Text extraction succeeded but nothing matched — persist the preview
+      // on the row now (rather than only on the generic catch in
+      // processPdf) so it's available for debugging even though this same
+      // error also gets caught and turned into a FAILED status upstream.
+      await prisma.statementUpload.update({
+        where: { id: uploadId },
+        data: { bank, rawTextPreview },
+      });
       throw ApiError.badRequest(
         'No transactions could be recognized in this statement. Supported formats: BCA, Mandiri, BRI text-based PDF exports.'
       );
@@ -311,11 +409,12 @@ export class StatementService {
     const monthlyAvgExpense = totalExpense / totalMonths;
     const topExpenseCategories = summarizeExpenseCategories(transactions, totalExpense);
 
-    const summary = await prisma.$transaction(async (tx) => {
-      const upload = await tx.statementUpload.create({
+    const updatedUpload = await prisma.$transaction(async (tx) => {
+      const updated = await tx.statementUpload.update({
+        where: { id: uploadId },
         data: {
-          userId,
-          fileName,
+          status: StatementUploadStatus.SUCCESS,
+          errorMessage: null,
           bank,
           periodStart,
           periodEnd,
@@ -323,6 +422,7 @@ export class StatementService {
           monthlyAvgRevenue,
           monthlyAvgExpense,
           totalMonths,
+          rawTextPreview,
         },
       });
 
@@ -335,35 +435,104 @@ export class StatementService {
           description: transaction.description,
           occurredAt: transaction.date,
           source: 'STATEMENT_UPLOAD',
-          statementUploadId: upload.id,
+          statementUploadId: updated.id,
         })),
       });
 
-      return upload;
+      return updated;
     });
 
-    return {
-      id: summary.id,
-      fileName: summary.fileName,
-      bank: summary.bank,
-      periodStart: summary.periodStart,
-      periodEnd: summary.periodEnd,
-      transactionCount: summary.transactionCount,
-      monthlyAvgRevenue,
-      monthlyAvgExpense,
-      totalMonths: summary.totalMonths,
-      createdAt: summary.createdAt,
-      topExpenseCategories,
-    };
+    return toSummary(updatedUpload, topExpenseCategories);
   }
 
   static async getLatest(userId: string): Promise<StatementSummary | null> {
     const upload = await prisma.statementUpload.findFirst({
-      where: { userId },
+      where: { userId, status: StatementUploadStatus.SUCCESS },
       orderBy: { createdAt: 'desc' },
     });
     if (!upload) return null;
+    return this.buildSummaryWithCategories(upload);
+  }
 
+  /**
+   * Paginated upload history for the current user, newest first. Deliberately
+   * omits `filePath` — the list view must never expose the storage object
+   * path or a signed URL; use `getFileSignedUrl` for that, scoped per item.
+   */
+  static async list(userId: string, page: number, limit: number) {
+    const skip = (page - 1) * limit;
+    const [uploads, total] = await Promise.all([
+      prisma.statementUpload.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.statementUpload.count({ where: { userId } }),
+    ]);
+
+    return {
+      items: uploads.map((upload) => ({
+        id: upload.id,
+        fileName: upload.fileName,
+        status: upload.status,
+        errorMessage: upload.errorMessage,
+        bank: upload.bank,
+        createdAt: upload.createdAt,
+        transactionCount: upload.transactionCount,
+        monthlyAvgRevenue: upload.monthlyAvgRevenue === null ? null : Number(upload.monthlyAvgRevenue),
+        monthlyAvgExpense: upload.monthlyAvgExpense === null ? null : Number(upload.monthlyAvgExpense),
+      })),
+      page,
+      limit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    };
+  }
+
+  /**
+   * Single upload detail, scoped to the given userId. Returns null if the
+   * upload doesn't exist or doesn't belong to this user (the controller is
+   * responsible for turning that into a 404).
+   */
+  static async getById(userId: string, id: string): Promise<StatementSummary | null> {
+    const upload = await prisma.statementUpload.findFirst({ where: { id, userId } });
+    if (!upload) return null;
+    return this.buildSummaryWithCategories(upload);
+  }
+
+  /**
+   * Returns the raw `StatementUpload` row (including `filePath`) for
+   * ownership checks + signed URL generation. Never exposed directly to the
+   * client — see `StatementController.file`.
+   */
+  static async getOwnedUploadOrThrow(userId: string, id: string) {
+    const upload = await prisma.statementUpload.findUnique({ where: { id } });
+    if (!upload) throw ApiError.notFound('Statement upload not found');
+    if (upload.userId !== userId) throw ApiError.forbidden('You do not have access to this statement upload');
+    if (!upload.filePath) throw ApiError.notFound('No file is stored for this statement upload');
+    return upload;
+  }
+
+  static async getFileSignedUrl(userId: string, id: string): Promise<string> {
+    const upload = await this.getOwnedUploadOrThrow(userId, id);
+    return StorageService.getStatementFileSignedUrl(upload.filePath as string);
+  }
+
+  private static async buildSummaryWithCategories(upload: {
+    id: string;
+    fileName: string;
+    status: StatementUploadStatus;
+    errorMessage: string | null;
+    bank: StatementBank;
+    periodStart: Date | null;
+    periodEnd: Date | null;
+    transactionCount: number;
+    monthlyAvgRevenue: Prisma.Decimal | null;
+    monthlyAvgExpense: Prisma.Decimal | null;
+    totalMonths: number;
+    createdAt: Date;
+  }): Promise<StatementSummary> {
     const expenseTransactions = await prisma.transaction.findMany({
       where: { statementUploadId: upload.id, type: TransactionType.EXPENSE },
       select: { amount: true, category: true },
@@ -374,19 +543,7 @@ export class StatementService {
       totalExpense
     );
 
-    return {
-      id: upload.id,
-      fileName: upload.fileName,
-      bank: upload.bank,
-      periodStart: upload.periodStart,
-      periodEnd: upload.periodEnd,
-      transactionCount: upload.transactionCount,
-      monthlyAvgRevenue: Number(upload.monthlyAvgRevenue),
-      monthlyAvgExpense: Number(upload.monthlyAvgExpense),
-      totalMonths: upload.totalMonths,
-      createdAt: upload.createdAt,
-      topExpenseCategories,
-    };
+    return toSummary(upload, topExpenseCategories);
   }
 }
 

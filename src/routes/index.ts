@@ -4,6 +4,7 @@ import userRoutes from './user.routes';
 import authRoutes from './auth.routes';
 import membershipRoutes from './membership.routes';
 import predictionRoutes from './prediction.routes';
+import statementRoutes from './statement.routes';
 
 const router = Router();
 
@@ -12,5 +13,6 @@ router.use('/users', userRoutes);
 router.use('/auth', authRoutes);
 router.use('/memberships', membershipRoutes);
 router.use('/analytics', predictionRoutes);
+router.use('/statements', statementRoutes);
 
 export default router;
