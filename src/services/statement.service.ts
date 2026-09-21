@@ -1,4 +1,3 @@
-import { PDFParse } from 'pdf-parse';
 import { Prisma, StatementBank, TransactionType } from '@prisma/client';
 import { prisma } from '../config/database';
 import { ApiError } from '../utils/apiError';
@@ -178,8 +177,21 @@ export class StatementService {
    * a `StatementUpload` summary row.
    */
   static async processPdf(userId: string, fileBuffer: Buffer, fileName: string): Promise<StatementSummary> {
+    // Lazy-loaded: pdf-parse pulls in canvas/DOMMatrix-related machinery at
+    // module load time, which crashes serverless cold starts on platforms
+    // (e.g. Vercel) missing the optional @napi-rs/canvas native binary.
+    // Deferring the require until a statement is actually uploaded keeps
+    // every other route (including login) unaffected by that dependency.
+    //
+    // We also pass pdf-parse's own CanvasFactory explicitly (its documented
+    // fix for "DOMMatrix is not defined" on serverless platforms), so text
+    // extraction itself doesn't need a native canvas binary at all:
+    // https://github.com/mehmet-kozan/pdf-parse/blob/main/docs/troubleshooting.md
+    const { CanvasFactory } = await import('pdf-parse/worker');
+    const { PDFParse } = await import('pdf-parse');
+
     let text: string;
-    const parser = new PDFParse({ data: fileBuffer });
+    const parser = new PDFParse({ data: fileBuffer, CanvasFactory });
     try {
       const result = await parser.getText();
       text = result.text || '';
